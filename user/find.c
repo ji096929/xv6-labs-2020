@@ -1,71 +1,94 @@
 #include "kernel/types.h"
+#include "kernel/stat.h"
 #include "user/user.h"
+#include "kernel/fs.h"
 
-#define READ 0
-#define WRITE 1
-
-void check(int fd[])
+char*
+fmtname(char *path)
 {
-    close(fd[WRITE]);
+  static char buf[DIRSIZ+1];
+  char *p;
 
-    int num;
-    if (read(fd[READ], &num, sizeof(int)) != sizeof(int))
-    {
-        close(fd[READ]);
-        exit(0);
-    }
-    printf("prime %d\n", num);
+  // Find first character after last slash.
+  for(p=path+strlen(path); p >= path && *p != '/'; p--)
+    ;
+  p++;
 
-    int fd_new[2];
-    pipe(fd_new);
-    if (fork() > 0)
-    {
-        close(fd_new[READ]);
-        int next;
-        while (read(fd[READ], &next, sizeof(int)) == sizeof(int))
-        {
-            if (next % num != 0)
-            {
-                write(fd_new[WRITE], &next, sizeof(int));
-            }
-        }
-        close(fd[READ]);
-        close(fd_new[WRITE]);
-        wait(0);
-    }
-    else
-    {
-        close(fd_new[WRITE]);
-        close(fd[READ]);
-        check(fd_new);
-    }
-    exit(0);
+  // Return blank-padded name.
+  if(strlen(p) >= DIRSIZ)
+    return p;
+  memmove(buf, p, strlen(p));
+  memset(buf+strlen(p), ' ', DIRSIZ-strlen(p));
+  return buf;
 }
 
-int main(int argc, char *argv[])
+char * get_name(char *path)
 {
-    int fd[2];
+  char *p;
+  for(p=path+strlen(path); p>=path && *p!='/'; p--)
+    ;
+  p++;
+  return p;
+}
 
-    // 从1写入，从0读出
-    pipe(fd);
+void
+find(char *path, char *target)
+{
+  char buf[512], *p;
+  int fd;
+  struct dirent de;
+  struct stat st;
 
-    int res = fork();
-    if (res > 0)
-    {
-        // par
-        close(fd[READ]);
-        for (int i = 2; i <= 35; i++)
-        {
-            write(fd[WRITE], &i, sizeof(int));
-        }
-        close(fd[WRITE]);
-        int state;
-        wait(&state);
+  if((fd = open(path, 0)) < 0){
+    fprintf(2, "ls: cannot open %s\n", path);
+    return;
+  }
+
+  if(fstat(fd, &st) < 0){
+    fprintf(2, "ls: cannot stat %s\n", path);
+    close(fd);
+    return;
+  }
+
+  switch(st.type){
+  case T_FILE:
+    if(strcmp(get_name(path), target) == 0)
+      printf("%s\n", path);
+    break;
+
+  case T_DIR:
+    if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){
+      printf("ls: path too long\n");
+      break;
     }
-    else
-    {
-        // chi
-        check(fd);
+    strcpy(buf, path);
+    p = buf+strlen(buf);
+    *p++ = '/';
+    while(read(fd, &de, sizeof(de)) == sizeof(de)){
+      if(de.inum == 0)
+        continue;
+      if(strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0)
+        continue;
+      memmove(p, de.name, DIRSIZ);
+      p[DIRSIZ] = 0;
+      if(stat(buf, &st) < 0){
+        printf("ls: cannot stat %s\n", buf);
+        continue;
+      }
+      find(buf, target);
     }
-    exit(0);
+    break;
+  }
+  close(fd);
+}
+
+int
+main(int argc, char *argv[])
+{
+  if (argc != 3) {
+    fprintf(2, "Usage: find <path> <filename>\n");
+    exit(1);
+  }
+  find(argv[1], argv[2]);
+  exit(0);
 }
