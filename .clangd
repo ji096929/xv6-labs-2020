@@ -1,0 +1,19 @@
+CompileFlags:
+  Add: [
+    "-xc",
+    "--target=riscv64-unknown-elf",
+    "-mabi=lp64",
+    "-march=rv64g",
+    "-D__riscv_xlen=64",
+    "-I.",
+    "-Ikernel",
+    "-Iuser"
+  ]
+  # 移除 GCC 特有但 Clang 不认识的参数
+  Remove: [-mno-relax, -fno-tree-loop-distribute-patterns, -mrelax, -Wa,-march=rv64g]
+
+Index:
+  Background: Build
+
+Diagnostics:
+  Suppress: ["drv_unknown_argument"]
