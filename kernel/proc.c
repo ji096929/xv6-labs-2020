@@ -24,10 +24,10 @@ extern char trampoline[]; // trampoline.S
 // initialize the proc table at boot time.
 void procinit(void) {
   struct proc *p;
-
+  
   initlock(&pid_lock, "nextpid");
   for (p = proc; p < &proc[NPROC]; p++) {
-    initlock(&p->lock, "proc");
+      initlock(&p->lock, "proc");
   }
   kvminithart();
 }
@@ -59,7 +59,7 @@ struct proc *myproc(void) {
 
 int allocpid() {
   int pid;
-
+  
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -199,7 +199,10 @@ void proc_freepagetable(pagetable_t pagetable, uint64 sz) {
 
 // free a process's kernel page table
 void proc_free_kpagetable(struct proc *p) {
-  uvmunmap(p->kpagetable, p->kstack, 1, 0);
+  if (p->sz > 0) {
+    kvmunmap_user(p->kpagetable, 0, p->sz);
+  }
+  uvmunmap(p->kpagetable, p->kstack, 1, 1);
   kernel_freewalk(p->kpagetable);
 }
 // a user program that calls exec("/init")
@@ -217,7 +220,7 @@ void userinit(void) {
 
   p = allocproc();
   initproc = p;
-
+  
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
@@ -375,7 +378,7 @@ void exit(int status) {
   acquire(&p->lock);
   struct proc *original_parent = p->parent;
   release(&p->lock);
-
+  
   // we need the parent's lock in order to wake it up from wait().
   // the parent-then-child rule says we have to lock it first.
   acquire(&original_parent->lock);
@@ -425,7 +428,7 @@ int wait(uint64 addr) {
           // Found one.
           pid = np->pid;
           if (addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
-                                   sizeof(np->xstate)) < 0) {
+                                  sizeof(np->xstate)) < 0) {
             release(&np->lock);
             release(&p->lock);
             return -1;
@@ -444,7 +447,7 @@ int wait(uint64 addr) {
       release(&p->lock);
       return -1;
     }
-
+    
     // Wait for a child to exit.
     sleep(p, &p->lock); // DOC: wait-sleep
   }
@@ -460,12 +463,12 @@ int wait(uint64 addr) {
 void scheduler(void) {
   struct proc *p;
   struct cpu *c = mycpu();
-
+  
   c->proc = 0;
   for (;;) {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-
+    
     int found = 0;
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -557,7 +560,7 @@ void forkret(void) {
 // Reacquires lock when awakened.
 void sleep(void *chan, struct spinlock *lk) {
   struct proc *p = myproc();
-
+  
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
