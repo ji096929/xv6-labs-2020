@@ -112,5 +112,7 @@ uint64 sys_sigalarm(void) {
 uint64
 sys_sigreturn(void)
 {
+  *myproc()->trapframe = myproc()->alarm_tf;
+  myproc()->alarm_in_handler = 0;  // 清除重入标志
   return 0;
 }

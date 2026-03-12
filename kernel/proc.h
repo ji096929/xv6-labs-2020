@@ -105,5 +105,7 @@ struct proc {
   char name[16];               // Process name (debugging)
   int alarm_ticks;             // Alarm ticks
   uint64 alarm_handler;        // Alarm handler
+  struct trapframe alarm_tf;  // Alarm trapframe
   int ticks_count;             // Ticks count
+  int alarm_in_handler;        // Flag to prevent reentrant alarm calls
 };

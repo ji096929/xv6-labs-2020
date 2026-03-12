@@ -78,15 +78,18 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if (which_dev == 2) {
-    if (p->alarm_ticks > 0) {
+    if (p->alarm_ticks > 0 && !p->alarm_in_handler) {
       p->ticks_count++;
       if (p->ticks_count == p->alarm_ticks) {
+        p->alarm_tf=*(p->trapframe);
         p->trapframe->epc=p->alarm_handler;
-        }
+        p->ticks_count = 0;  // 重置计数器
+        p->alarm_in_handler = 1;  // 标记正在执行处理器
       }
+    }
     
     yield();
-    }
+  }
     
 
   usertrapret();
