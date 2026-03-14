@@ -47,9 +47,13 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
+      // printf("sbrk: oldsz=%p, n=%d, newsz=%p\n", addr, n, addr + n);
   if(n > 0){
     myproc()->sz += n;
   } else if(n < 0){
+    uint64 newsz=addr+n;
+    if(newsz>addr)
+    {newsz=0;}
     myproc()->sz = uvmdealloc(myproc()->pagetable, addr, addr + n);
   }
   return addr;
