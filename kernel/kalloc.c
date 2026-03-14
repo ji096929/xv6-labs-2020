@@ -23,10 +23,14 @@ struct {
   struct run *freelist;
 } kmem;
 
+int refcnt[PHYSTOP / PGSIZE];
+struct spinlock refcnt_lock;
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&refcnt_lock, "refcnt");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,10 +55,18 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  //free时引用减一
+  acquire(&refcnt_lock);
+  if(--refcnt[(uint64)pa / PGSIZE] > 0) {
+    release(&refcnt_lock);
+    return;
+  }
+  release(&refcnt_lock);
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
+
 
   acquire(&kmem.lock);
   r->next = kmem.freelist;
@@ -77,6 +89,35 @@ kalloc(void)
   release(&kmem.lock);
 
   if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
+  {
+      //初始分配时，引用计数为1
+      acquire(&refcnt_lock);
+      refcnt[(uint64)r / PGSIZE] = 1;
+      release(&refcnt_lock);
+      memset((char*)r, 5, PGSIZE); // fill with junk
+  }
+   
   return (void*)r;
+}
+
+void kref_inc(void *pa) {
+  acquire(&refcnt_lock);
+  refcnt[(uint64)pa / PGSIZE]++;
+  release(&refcnt_lock);
+}
+
+void kref_dec(void *pa)
+{
+   acquire(&refcnt_lock);
+  refcnt[(uint64)pa / PGSIZE]--;
+  release(&refcnt_lock); 
+}
+
+int kref_get(void *pa)
+{
+  int cnt;
+  acquire(&refcnt_lock);
+  cnt = refcnt[(uint64)pa / PGSIZE];
+  release(&refcnt_lock);
+  return cnt;
 }

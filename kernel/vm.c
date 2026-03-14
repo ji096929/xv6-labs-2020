@@ -309,7 +309,7 @@ int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
-  uint64 pa, i;
+  uint64  i;
   uint flags;
   char *mem;
 
@@ -318,13 +318,21 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
+    
+    //1.提取物理地址
+    mem = (char*)PTE2PA(*pte);
+    //2.如果页面是可写的，标记为cow
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if(flags & PTE_W) {
+      *pte &= ~PTE_W;
+      *pte |= PTE_COW;
+      flags = PTE_FLAGS(*pte);
+    }
+    //3.增加页面的引用计数
+    kref_inc(mem);
+    //4.将页面映射到新进程，这里不能直接拷贝
+    if(mappages(new,i,PGSIZE,(uint64)mem,flags) != 0) {
+      kref_dec(mem);
       goto err;
     }
   }
@@ -358,12 +366,19 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(is_cow(pte)) {
+      copy_on_write(pagetable, va0);
+    }
+
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+
+
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
@@ -439,4 +454,30 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int is_cow(pte_t *pte) {
+  if(*pte & PTE_COW) {
+    return 1;
+  }
+  return 0;
+}
+
+void copy_on_write(pagetable_t pagetable, uint64 va) {
+  pte_t *pte = walk(pagetable, va, 0);
+  uint64 pa = PTE2PA(*pte);
+  uint flag = PTE_FLAGS(*pte);
+  if(kref_get((void*)pa) == 1){
+        *pte |= PTE_W;
+        *pte &= ~PTE_COW;
+      } else {
+        uint64 mem=(uint64)kalloc();
+        if(mem==0)
+        { return;}
+        memmove((void*)mem, (void*)pa, 4096);
+        *pte=PA2PTE(mem)|flag|PTE_W;
+        *pte &= ~PTE_COW;
+        kfree((void*)pa);
+      }
+      sfence_vma();
 }
